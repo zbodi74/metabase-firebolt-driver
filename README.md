@@ -77,5 +77,10 @@ Build the driver from source as described in the [Build from source](#build-from
 | >=0.55,<0.64     | 3.2.3          | 2.0              |
 | >=0.64           | 3.3.0          | 2.0              |
 
-Driver 3.3.0 targets Metabase 0.64 and later, which compile MBQL 5 directly. It doesn't load on 0.63 or earlier, and
-earlier driver versions don't load on 0.64 or later. Build it against a Metabase 0.64+ jar (`METABASE_VERSION`).
+Driver 3.3.0 targets Metabase 0.64 and later, which compile MBQL 5 directly. Earlier driver versions don't load on
+0.64 or later. 3.3.0 loads on 0.63 but compiles string filters incorrectly there, so use 3.2.x on 0.63 and earlier.
+Build it against a Metabase 0.64+ jar (`METABASE_VERSION`).
+
+Verified for 3.3.0: the unit tests in `test/metabase/driver/firebolt_mbql5_test.clj` and
+`firebolt_describe_database_test.clj` pass against Metabase 0.64.4 and 0.65.2, and the jar loads fully on
+Metabase 64.4 and 65.2. It has not yet been run against a live Firebolt database.

@@ -119,7 +119,8 @@
     :else       #{}))
 
 (defn- syncable-schema-predicate
-  "Build a predicate (schema-name -> boolean) from connection details :schemas.
+  "Build a predicate (schema-name -> boolean) from connection details :schemas, or return nil when no schema filter
+   is configured (every schema is included).
    Details :schemas can be:
    - nil / absent: include all schemas
    - map with :filter-type and :schemas:
@@ -130,7 +131,7 @@
   (let [schemas-config (get details :schemas)]
     (cond
       (nil? schemas-config)
-      (constantly true)
+      nil
 
       (string? schemas-config)
       (let [patterns (parse-schema-list schemas-config)]
@@ -141,8 +142,7 @@
       (let [filter-type (some-> (get schemas-config :filter-type) str str/lower-case keyword)
             filter-type (or filter-type (get schemas-config :filter-type))
             patterns (parse-schema-list (get schemas-config :schemas))]
-        (if (empty? patterns)
-          (constantly true)
+        (when (seq patterns)
           (case filter-type
             (:only "only")
             (fn [schema-name]
@@ -150,10 +150,10 @@
             (:exclude "exclude")
             (fn [schema-name]
               (not (some #(schema-matches-pattern? schema-name %) patterns)))
-            (constantly true))))
+            nil)))
 
       :else
-      (constantly true))))
+      nil)))
 
 ;;; ------------------------------------------------- sql-jdbc.sync --------------------------------------------------
 
@@ -343,16 +343,20 @@
   [_]
   #{"information_schema"})
 
-; Override describe-database to apply user-configured schema filter from connection details (Schemas dropdown).
-(defmethod driver/describe-database :firebolt
-  [driver db-or-id-or-spec]
-  (let [result (sql-jdbc.sync/describe-database driver db-or-id-or-spec)
-        tables (get result :tables)
-        details (when (map? db-or-id-or-spec) (:details db-or-id-or-spec))
-        include? (syncable-schema-predicate (or details {}))]
-    (if (or (nil? details) (empty? tables))
+; Apply the user-configured schema filter from connection details (Schemas dropdown).
+; Implements `describe-database*` rather than `describe-database`, so Metabase's resilient-connection wrapper
+; around it still applies.
+; Since Metabase 0.63.22, :tables is a reduce-only reducible (IReduceInit) that streams tables, not a set, so it
+; can't be passed to `empty?`, `seq` or `filter`. Filter it with a transducer instead, which keeps it reducible and
+; also works when :tables is a plain collection.
+(defmethod driver/describe-database* :firebolt
+  [driver database]
+  (let [result   (sql-jdbc.sync/describe-database driver database)
+        include? (when (map? database)
+                   (syncable-schema-predicate (:details database)))]
+    (if (nil? include?)
       result
-      (assoc result :tables (set (filter #(include? (or (:schema %) "")) tables))))))
+      (update result :tables #(eduction (filter (fn [table] (include? (or (:schema table) "")))) %)))))
 
 (defmethod sql-jdbc.describe-table/get-table-pks :firebolt
   [_ ^Connection conn db-name-or-nil table]
