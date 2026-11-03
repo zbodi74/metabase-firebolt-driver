@@ -70,13 +70,15 @@
 
 ; Testing the firebolt database connection
 (defmethod driver/can-connect? :firebolt [driver details]
+  ;; Same check the :sql-jdbc implementation runs before connecting (refuses disallowed JDBC parameters).
+  (driver/validate-db-details! driver details)
   (ssh/with-ssh-tunnel [details-with-tunnel details]
     (let [connection (sql-jdbc.conn/connection-details->spec driver details-with-tunnel)]
       (= 1 (first (vals (first (jdbc/query connection ["SELECT 1"]))))))))
 
 (defmethod driver/db-default-timezone :firebolt [_ _]  "UTC" ) ; possible parameters db-default-timezone
 
-(defmethod sql.qp/honey-sql-version :firebolt [_] 2)
+;; `sql.qp/honey-sql-version` was removed in Metabase 64; Honey SQL 2 is the only option now.
 
 ;;; ---------------------------------------------- schema filter (exploration) ---------------------------------------
 
@@ -291,12 +293,13 @@
 ;(models/defmodel Table :metabase_table)
 
 ; call REGEXP_MATCHES function when regex-match-first is called
+; Metabase 64+ compiles MBQL 5, where the clause options map is the second element.
 (defmethod sql.qp/->honeysql [:firebolt :regex-match-first]
-           [_ [_ arg pattern]]
+           [_ [_ _opts arg pattern]]
            [:REGEXP_EXTRACT (sql.qp/->honeysql :firebolt arg) pattern])
 
 (defmethod sql.qp/->honeysql [:firebolt :contains]
-            [_ [_ field value options]]
+            [_ [_ options field value]]
             (let [hsql-field (sql.qp/->honeysql :firebolt field)
                   hsql-value (sql.qp/->honeysql :firebolt value)]
                     (if (get options :case-sensitive true)
@@ -310,23 +313,24 @@
 ; Override starts-with and ends-with to use REGEXP_EXTRACT instead of LIKE,
 ; since LIKE only supports constant strings as a pattern
 (defmethod sql.qp/->honeysql [:firebolt :starts-with]
-            [_ [_ field value options]]
+            [_ [_ options field value]]
             (let [hsql-field (sql.qp/->honeysql :firebolt field)
                   hsql-value (sql.qp/->honeysql :firebolt value)
                   flags (if (get options :case-sensitive true) "" "i")]
               [:is [:REGEXP_EXTRACT hsql-field [:|| "^" (escape-regexp-sql hsql-value)] flags] [:not nil]]))
 
 (defmethod sql.qp/->honeysql [:firebolt :ends-with]
-            [_ [_ field value options]]
+            [_ [_ options field value]]
             (let [hsql-field (sql.qp/->honeysql :firebolt field)
                   hsql-value (sql.qp/->honeysql :firebolt value)
                   flags (if (get options :case-sensitive true) "" "i")]
               [:is [:REGEXP_EXTRACT hsql-field [:|| (escape-regexp-sql hsql-value) "$"] flags] [:not nil]]))
 
-; Wrap between clause in parenthesis
-(defmethod sql.qp/->honeysql [:sql :between]
-  [_ [_ field min-val max-val]]
-  [:nest [:between (sql.qp/->honeysql :firebolt field) (sql.qp/->honeysql :firebolt min-val) (sql.qp/->honeysql :firebolt max-val)]])
+; Wrap between clause in parenthesis.
+; Dispatches on :firebolt only: the [:sql :between] method is shared by every SQL driver.
+(defmethod sql.qp/->honeysql [:firebolt :between]
+  [driver clause]
+  [:nest ((get-method sql.qp/->honeysql [:sql :between]) driver clause)])
 
 ; Choose post-filtered-active-tables method for firebolt, it's described as
 ; Alternative implementation of `active-tables` best suited for DBs with little or no support for schemas

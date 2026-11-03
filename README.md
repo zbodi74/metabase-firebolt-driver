@@ -74,4 +74,8 @@ Build the driver from source as described in the [Build from source](#build-from
 | <=0.47.x         | 3.0.1          | 1.0              |
 | \>=0.48.x        | 3.1.0          | 1.0 and 2.0      |
 | >=0.52,<0.55     | 3.2.0          | 2.0              |
-| >=0.55           | 3.2.3          | 2.0              |
+| >=0.55,<0.64     | 3.2.3          | 2.0              |
+| >=0.64           | 3.3.0          | 2.0              |
+
+Driver 3.3.0 targets Metabase 0.64 and later, which compile MBQL 5 directly. It doesn't load on 0.63 or earlier, and
+earlier driver versions don't load on 0.64 or later. Build it against a Metabase 0.64+ jar (`METABASE_VERSION`).
